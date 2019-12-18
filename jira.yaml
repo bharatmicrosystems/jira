@@ -1,0 +1,90 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: jira-pv-volume
+  labels:
+    type: local
+spec:
+  storageClassName: manual
+  capacity:
+    storage: 2Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/kubevolumes/jira_data"
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: jira-statefulset
+  labels:
+    app: jira
+spec:
+  serviceName: jira-service
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jira
+  template:
+    metadata:
+      labels:
+        app: jira
+    spec:
+      containers:
+      - name: jira
+        image: atlassian/jira-software
+        imagePullPolicy: IfNotPresent
+        ports: 
+        - containerPort: 8080
+        volumeMounts:
+        - mountPath: "/var/atlassian/application-data/jira"
+          name: jira-pv-claim
+      initContainers:
+      - name: volume-mount-data-log
+        image: busybox
+        imagePullPolicy: IfNotPresent
+        command: ["sh", "-c", "chown -R 2001:2001 /var/atlassian/application-data/jira"]
+        volumeMounts:
+        - mountPath: "/var/atlassian/application-data/jira"
+          name: jira-pv-claim
+  volumeClaimTemplates:
+  - metadata:
+      name: jira-pv-claim
+    spec:
+      storageClassName: manual
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        requests:
+          storage: 2Gi 
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jira-service
+  labels:
+    app: jira-svc
+spec:
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+  selector:
+    app: jira
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: jira-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/add-base-url: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+spec:
+  rules:
+  - host: jira.example.com
+    http:
+      paths:
+        - path: /
+          backend:
+            serviceName: jira-service
+            servicePort: 8080
